@@ -61,14 +61,38 @@ fi
 echo ""
 echo "[3/3] Installing Ableton Remote Script..."
 
-# Find User Remote Scripts in Ableton Preferences (preferred) and app bundles
+case "$(uname -s)" in
+    Darwin)               OS="mac" ;;
+    MINGW*|MSYS*|CYGWIN*) OS="windows" ;;
+    *)                    OS="other" ;;
+esac
+
 DIRS=()
-while IFS= read -r -d '' dir; do
-    DIRS+=("$dir")
-done < <(find "$HOME/Library/Preferences/Ableton" -maxdepth 3 -type d -name "User Remote Scripts" -print0 2>/dev/null)
-while IFS= read -r -d '' dir; do
-    DIRS+=("$dir")
-done < <(find /Applications -maxdepth 5 -type d -name "MIDI Remote Scripts" -path "*/Ableton*" -print0 2>/dev/null)
+
+if [ "$OS" = "mac" ]; then
+    # User Remote Scripts in Ableton Preferences (preferred), then app bundles
+    while IFS= read -r -d '' dir; do
+        DIRS+=("$dir")
+    done < <(find "$HOME/Library/Preferences/Ableton" -maxdepth 3 -type d -name "User Remote Scripts" -print0 2>/dev/null)
+    while IFS= read -r -d '' dir; do
+        DIRS+=("$dir")
+    done < <(find /Applications -maxdepth 5 -type d -name "MIDI Remote Scripts" -path "*/Ableton*" -print0 2>/dev/null)
+
+elif [ "$OS" = "windows" ]; then
+    # Git Bash / MSYS: translate Windows env vars into POSIX paths.
+    to_posix() { cygpath -u "$1" 2>/dev/null || echo "$1"; }
+    PROGDATA="$(to_posix "${PROGRAMDATA:-C:\\ProgramData}")"
+    USERDOCS="$(to_posix "${USERPROFILE:-$HOME}")/Documents"
+
+    # User Library Remote Scripts (preferred — survives Live updates)
+    while IFS= read -r -d '' dir; do
+        DIRS+=("$dir")
+    done < <(find "$USERDOCS/Ableton" -maxdepth 4 -type d -name "Remote Scripts" -print0 2>/dev/null)
+    # Bundled MIDI Remote Scripts (C:\ProgramData\Ableton\Live NN\Resources\...)
+    while IFS= read -r -d '' dir; do
+        DIRS+=("$dir")
+    done < <(find "$PROGDATA/Ableton" -maxdepth 4 -type d -name "MIDI Remote Scripts" -print0 2>/dev/null)
+fi
 
 if [ ${#DIRS[@]} -eq 0 ]; then
     echo "  No Ableton installation found."

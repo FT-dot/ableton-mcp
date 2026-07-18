@@ -79,6 +79,7 @@ class AbletonMCP(ControlSurface):
             # Device read-only
             "get_device_parameters": self._get_device_parameters_handler,
             "get_device_info": self._get_device_info_handler,
+            "get_drum_pads": self._get_drum_pads_handler,
             # Browser (read-only)
             "get_browser_tree": self._get_browser_tree_handler,
             "get_browser_items_at_path": self._get_browser_items_at_path_handler,
@@ -98,6 +99,7 @@ class AbletonMCP(ControlSurface):
             # Clip operations (write)
             "create_clip": self._create_clip_handler,
             "add_notes_to_clip": self._add_notes_to_clip_handler,
+            "transpose_clip": self._transpose_clip_handler,
             "set_clip_name": self._set_clip_name_handler,
             "delete_clip": self._delete_clip_handler,
             "duplicate_clip_to_slot": self._duplicate_clip_to_slot_handler,
@@ -156,6 +158,7 @@ class AbletonMCP(ControlSurface):
             "get_all_scenes",
             "get_device_parameters",
             "get_device_info",
+            "get_drum_pads",
             "get_browser_tree",
             "get_browser_items_at_path",
             "search_browser",
@@ -177,6 +180,7 @@ class AbletonMCP(ControlSurface):
             "set_track_send",
             "create_clip",
             "add_notes_to_clip",
+            "transpose_clip",
             "set_clip_name",
             "delete_clip",
             "duplicate_clip_to_slot",
@@ -618,6 +622,11 @@ class AbletonMCP(ControlSurface):
 
     # -- Clip operations (write) ---------------------------------------
 
+    def _get_drum_pads_handler(self, params):
+        track_index = params.get("track_index", 0)
+        include_empty = params.get("include_empty", False)
+        return self._get_drum_pads(track_index, include_empty)
+
     def _create_clip_handler(self, params):
         track_index = params.get("track_index", 0)
         clip_index = params.get("clip_index", 0)
@@ -629,6 +638,12 @@ class AbletonMCP(ControlSurface):
         clip_index = params.get("clip_index", 0)
         notes = params.get("notes", [])
         return self._add_notes_to_clip(track_index, clip_index, notes)
+
+    def _transpose_clip_handler(self, params):
+        track_index = params.get("track_index", 0)
+        clip_index = params.get("clip_index", 0)
+        semitones = params.get("semitones", 0)
+        return self._transpose_clip(track_index, clip_index, semitones)
 
     def _set_clip_name_handler(self, params):
         track_index = params.get("track_index", 0)
@@ -1255,6 +1270,61 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error adding notes to clip: " + str(e))
             raise
 
+    def _transpose_clip(self, track_index, clip_index, semitones):
+        """Transpose all MIDI notes in a clip in place, preserving timing,
+        duration, velocity and the clip's name/length. MIDI clips only."""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+            track = self._song.tracks[track_index]
+            if clip_index < 0 or clip_index >= len(track.clip_slots):
+                raise IndexError("Clip index out of range")
+            clip_slot = track.clip_slots[clip_index]
+            if not clip_slot.has_clip:
+                raise Exception("No clip in slot")
+            clip = clip_slot.clip
+            if not clip.is_midi_clip:
+                raise Exception("Not a MIDI clip (transpose only works on MIDI clips)")
+
+            semitones = int(semitones)
+            length = clip.length
+
+            # get_notes(from_time, from_pitch, time_span, pitch_span) ->
+            # ((pitch, time, duration, velocity, mute), ...)
+            notes_tuple = clip.get_notes(0, 0, length, 128)
+            if not notes_tuple or len(notes_tuple) == 0:
+                return {
+                    "transposed": True, "semitones": semitones,
+                    "note_count": 0, "clamped": 0, "clip_name": clip.name
+                }
+
+            new_notes = []
+            clamped = 0
+            for note in notes_tuple:
+                pitch = note[0] + semitones
+                if pitch < 0:
+                    pitch = 0
+                    clamped += 1
+                elif pitch > 127:
+                    pitch = 127
+                    clamped += 1
+                new_notes.append((pitch, note[1], note[2], note[3], note[4]))
+
+            # Clear existing notes, then write the transposed set.
+            self._clip_remove_notes(clip, 0, length, 0, 128)
+            clip.set_notes(tuple(new_notes))
+
+            return {
+                "transposed": True,
+                "semitones": semitones,
+                "note_count": len(new_notes),
+                "clamped": clamped,
+                "clip_name": clip.name
+            }
+        except Exception as e:
+            self.log_message("Error transposing clip: " + str(e))
+            raise
+
     def _set_clip_name(self, track_index, clip_index, name):
         """Set the name of a clip"""
         try:
@@ -1341,6 +1411,72 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error duplicating clip to slot: " + str(e))
             raise
 
+    def _clip_remove_notes(self, clip, from_time, time_span, from_pitch, pitch_span):
+        """Remove notes from a clip within a range.
+
+        Live 11+ requires remove_notes_extended. The legacy Clip.remove_notes
+        raises a DeprecationWarning that Live surfaces as a RemoteScriptError,
+        which aborts the scheduled main-thread task before it can report back --
+        the write then hangs until the command timeout. Note the argument order
+        differs between the two APIs.
+        """
+        if hasattr(clip, "remove_notes_extended"):
+            clip.remove_notes_extended(from_pitch, pitch_span, from_time, time_span)
+        else:
+            clip.remove_notes(from_time, from_pitch, time_span, pitch_span)
+
+    def _get_drum_pads(self, track_index, include_empty=False):
+        """List the drum pads of the Drum Rack on a track.
+
+        Returns each pad's MIDI note, note name and pad name. By default only
+        pads that actually have something loaded (pad.chains is non-empty) are
+        returned -- writing MIDI to an empty pad produces silence.
+        """
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+            track = self._song.tracks[track_index]
+
+            drum_rack = None
+            for device in track.devices:
+                if device.can_have_drum_pads:
+                    drum_rack = device
+                    break
+            if drum_rack is None:
+                raise ValueError("No Drum Rack found on track {0} ('{1}')".format(
+                    track_index, track.name))
+
+            note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+            pads = []
+            for pad in drum_rack.drum_pads:
+                loaded = len(pad.chains) > 0
+                if not loaded and not include_empty:
+                    continue
+                note = pad.note
+                # Ableton displays middle C (note 60) as C3
+                name = note_names[note % 12] + str(note // 12 - 2)
+                pads.append({
+                    "note": note,
+                    "note_name": name,
+                    "name": pad.name,
+                    "loaded": loaded,
+                    "mute": pad.mute,
+                    "solo": pad.solo,
+                })
+
+            pads.sort(key=lambda p: p["note"])
+            return {
+                "track_index": track_index,
+                "track_name": track.name,
+                "drum_rack": drum_rack.name,
+                "pad_count": len(pads),
+                "pads": pads,
+            }
+        except Exception as e:
+            self.log_message("Error getting drum pads: " + str(e))
+            raise
+
     def _get_clip_notes(self, track_index, clip_index):
         """Get notes from a clip"""
         try:
@@ -1391,8 +1527,7 @@ class AbletonMCP(ControlSurface):
             if not clip_slot.has_clip:
                 raise Exception("No clip in slot")
             clip = clip_slot.clip
-            # remove_notes signature: (from_time, from_pitch, time_span, pitch_span)
-            clip.remove_notes(from_time, from_pitch, time_span, pitch_span)
+            self._clip_remove_notes(clip, from_time, time_span, from_pitch, pitch_span)
             return {
                 "removed": True,
                 "from_time": from_time,

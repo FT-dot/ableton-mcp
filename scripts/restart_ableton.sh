@@ -1,6 +1,16 @@
 #!/bin/bash
 # Restart Ableton Live — used after installing new Remote Script
 # Usage: ./scripts/restart_ableton.sh [--no-save]
+#
+# On Windows (Git Bash/MSYS) this delegates to restart_ableton.ps1.
+
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        PS1_PATH="$(dirname "$0")/restart_ableton.ps1"
+        exec powershell.exe -NoProfile -ExecutionPolicy Bypass \
+            -File "$(cygpath -w "$PS1_PATH" 2>/dev/null || echo "$PS1_PATH")" "$@"
+        ;;
+esac
 
 ABLETON_APP="Ableton Live 12 Suite"
 

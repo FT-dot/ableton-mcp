@@ -161,6 +161,63 @@ def register(mcp: FastMCP, get_connection, cache):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    async def transpose_clip(
+        track_index: int, clip_index: int, semitones: int,
+    ) -> str:
+        """Transpose all MIDI notes in a clip by semitones, in place.
+
+        Non-destructive alternative to delete+recreate: shifts every note's
+        pitch while preserving timing, duration, velocity, and the clip's
+        name and length. Use this to move a MIDI clip to a different key.
+
+        For example, to move a clip from C# minor to A minor, use
+        semitones=-4 (down a major third). Positive values transpose up.
+
+        MIDI clips only (use set_clip_pitch for audio clips). Notes pushed
+        beyond the MIDI range are clamped to 0-127; the result reports how
+        many were clamped.
+
+        Args:
+            track_index: Track containing the MIDI clip.
+            clip_index: Clip slot index.
+            semitones: Pitch shift in semitones (negative = down, positive = up).
+        """
+        try:
+            conn = await get_connection()
+            result = await conn.send_command("transpose_clip", {
+                "track_index": track_index,
+                "clip_index": clip_index,
+                "semitones": semitones,
+            })
+            cache.invalidate_all()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            logger.error("Error transposing clip: %s", e)
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    async def set_clip_name(track_index: int, clip_index: int, name: str) -> str:
+        """Rename a clip (MIDI or audio).
+
+        Args:
+            track_index: Track containing the clip.
+            clip_index: Clip slot index.
+            name: New clip name.
+        """
+        try:
+            conn = await get_connection()
+            result = await conn.send_command("set_clip_name", {
+                "track_index": track_index,
+                "clip_index": clip_index,
+                "name": name,
+            })
+            cache.invalidate_all()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            logger.error("Error setting clip name: %s", e)
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
     async def delete_clip(track_index: int, clip_index: int) -> str:
         """Delete a clip from a track.
 

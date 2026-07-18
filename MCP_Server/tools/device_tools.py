@@ -150,6 +150,38 @@ def register(mcp: FastMCP, get_connection, cache):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    async def get_drum_pads(track_index: int, include_empty: bool = False) -> str:
+        """List the pads of the Drum Rack on a track, with their MIDI notes.
+
+        Use this BEFORE writing drum MIDI to a Drum Rack track. It tells you
+        exactly which pad is which sound and — critically — which pads actually
+        have a sample loaded. Writing notes to an empty pad produces silence,
+        so never guess pad numbers from the GM map: custom kits rarely follow it.
+
+        Returns each pad's note (e.g. 36), note_name (e.g. "C1"), and name
+        (e.g. "Kick 909"). By default only loaded pads are returned.
+
+        Args:
+            track_index: Track containing the Drum Rack.
+            include_empty: Also return pads with nothing loaded. Default False.
+        """
+        try:
+            cache_key = "drum_pads_{}_{}".format(track_index, include_empty)
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
+            conn = await get_connection()
+            result = await conn.send_command("get_drum_pads", {
+                "track_index": track_index, "include_empty": include_empty,
+            })
+            response = json.dumps(result, indent=2)
+            cache.set(cache_key, response, ttl=10)
+            return response
+        except Exception as e:
+            logger.error("Error getting drum pads: %s", e)
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
     async def tweak_device(
         track_index: int,
         device_index: int,

@@ -4,10 +4,10 @@
 
 Two-component system communicating via TCP JSON on port 9877:
 
-1. **MCP Server** (`MCP_Server/`) — Python async server using FastMCP. 39 tools in 8 modules under `MCP_Server/tools/`.
+1. **MCP Server** (`MCP_Server/`) — Python async server using FastMCP. 42 tools in 8 modules under `MCP_Server/tools/`.
 2. **Ableton Remote Script** (`AbletonMCP_Remote_Script/__init__.py`) — Runs inside Ableton's Python runtime. Socket server that receives commands and executes them via Ableton's Live API.
 
-## Tool Architecture (39 tools, producer-focused)
+## Tool Architecture (42 tools, producer-focused)
 
 | Module | Tools | Purpose |
 |--------|-------|---------|
@@ -16,8 +16,8 @@ Two-component system communicating via TCP JSON on port 9877:
 | `session_tools.py` (2) | `get_session`, `get_clip_notes` | Read session state |
 | `arrangement_tools.py` (4) | `create_scene`, `duplicate_scene`, `fire_scene`, `stop_all` | Scene/arrangement |
 | `track_tools.py` (4) | `create_track`, `delete_track`, `set_track_name`, `mix_track` | Track management |
-| `clip_tools.py` (8) | `create_audio_clip`, `create_clip`, `add_notes_to_clip`, `delete_clip`, `duplicate_clip`, `get_audio_clip_info`, `set_clip_pitch`, `set_clip_warp` | Clip operations + audio clip management |
-| `device_tools.py` (3) | `find_and_load_instrument`, `get_device_parameters`, `tweak_device` | Instruments & effects |
+| `clip_tools.py` (10) | `create_audio_clip`, `create_clip`, `add_notes_to_clip`, `transpose_clip`, `set_clip_name`, `delete_clip`, `duplicate_clip`, `get_audio_clip_info`, `set_clip_pitch`, `set_clip_warp` | Clip operations + audio clip management |
+| `device_tools.py` (4) | `find_and_load_instrument`, `get_device_parameters`, `get_drum_pads`, `tweak_device` | Instruments & effects |
 | `transport_tools.py` (6) | `play`, `stop`, `set_tempo`, `undo`, `redo`, `capture_midi` | Transport |
 
 ### Two ways to create music: Production tools vs Browser + Primitives
@@ -67,7 +67,17 @@ Two-component system communicating via TCP JSON on port 9877:
 - **Bass/Synth/Keys/Chords/Pads/Melody**: PatternEngine (search → pick → adapt → vary) using 1105 real MIDI patterns from `midi_patterns/`.
 - **Chord progressions**: Roman numeral parsing with presets (pop, jazz, blues, rock, sad, epic, house, reggaeton, andalusian).
 
-### GM Drum Mapping
+#### Before writing drum MIDI: call `get_drum_pads`
+
+**Custom kits rarely follow the GM map.** Always call `get_drum_pads(track_index)` before
+writing notes to a Drum Rack track. It returns, in one round-trip, every pad's note, note name
+and pad name — and only the pads that actually have a sample loaded (`pad.chains` non-empty).
+
+Writing MIDI to an empty pad is **silent, with no error**, so guessing pad numbers from the GM
+table below is a good way to produce fills nobody can hear. Use the GM table only as a fallback
+when the track has no Drum Rack to query.
+
+## GM Drum Mapping
 
 | Note | Pitch | Drum |
 |------|-------|------|
@@ -194,7 +204,19 @@ Search the web: `site:github.com cylab AbletonLive-API-Stub ClassName method_nam
 
 ## Installation
 
-Run `./install.sh` or manually:
+Run `./install.sh` (works on macOS and on Windows via Git Bash) or manually:
 - MCP Server: `uv pip install -e .`
-- Remote Script: copy `AbletonMCP_Remote_Script/__init__.py` to Ableton's `User Remote Scripts/AbletonMCP/`
-- Restart script: `./scripts/restart_ableton.sh`
+- Remote Script: copy `AbletonMCP_Remote_Script/__init__.py` into Ableton's Remote Scripts folder, under an `AbletonMCP/` subfolder:
+  - macOS: `~/Library/Preferences/Ableton/<version>/User Remote Scripts/` or the app bundle's `MIDI Remote Scripts/`
+  - Windows: `C:\ProgramData\Ableton\<version>\Resources\MIDI Remote Scripts\` or `Documents\Ableton\User Library\Remote Scripts\`
+- Restart script: `./scripts/restart_ableton.sh` (on Windows this delegates to `scripts/restart_ableton.ps1`)
+
+**Editing the Remote Script requires an Ableton restart.** Live imports the script once at
+startup and caches the module, so a changed `__init__.py` is not picked up until Live is
+restarted — a new command will fail with `Unknown command: <name>` until then. Save your set
+first; `restart_ableton.ps1` closes Live gracefully and will not force-quit over unsaved work
+unless you pass `-Force`.
+
+**Keep `scripts/*.ps1` ASCII-only.** Windows PowerShell 5.1 reads `.ps1` as Windows-1252, so a
+UTF-8 em dash or smart quote decodes into a character PowerShell treats as a string delimiter,
+producing confusing brace/parse errors.
