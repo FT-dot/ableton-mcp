@@ -10,7 +10,11 @@
 
 import { readFileSync } from "fs";
 
-const input = JSON.parse(readFileSync("/dev/stdin", "utf8"));
+// fd 0, nicht "/dev/stdin" — auf Windows löst der Pfad zu C:\dev\stdin auf und
+// wirft ENOENT. Exit 1 blockiert PreToolUse nicht, der Hook lief also stumm nie.
+// BOM strippen: PowerShell hängt beim Pipen ein UTF-8-BOM an, an dem JSON.parse
+// scheitert. Claude Code selbst pipet ohne — das hält den Hook per Hand testbar.
+const input = JSON.parse(readFileSync(0, "utf8").replace(/^﻿/, ""));
 const toolName = input.tool_name || "";
 
 // Only process Ableton MCP tools — match any server name containing "ableton"
