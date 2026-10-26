@@ -4,10 +4,10 @@
 
 Two-component system communicating via TCP JSON on port 9877:
 
-1. **MCP Server** (`MCP_Server/`) — Python async server using FastMCP. 42 tools in 8 modules under `MCP_Server/tools/`.
+1. **MCP Server** (`MCP_Server/`) — Python async server using FastMCP. 43 tools in 8 modules under `MCP_Server/tools/`.
 2. **Ableton Remote Script** (`AbletonMCP_Remote_Script/__init__.py`) — Runs inside Ableton's Python runtime. Socket server that receives commands and executes them via Ableton's Live API.
 
-## Tool Architecture (42 tools, producer-focused)
+## Tool Architecture (43 tools, producer-focused)
 
 | Module | Tools | Purpose |
 |--------|-------|---------|
@@ -16,7 +16,7 @@ Two-component system communicating via TCP JSON on port 9877:
 | `session_tools.py` (2) | `get_session`, `get_clip_notes` | Read session state |
 | `arrangement_tools.py` (4) | `create_scene`, `duplicate_scene`, `fire_scene`, `stop_all` | Scene/arrangement |
 | `track_tools.py` (4) | `create_track`, `delete_track`, `set_track_name`, `mix_track` | Track management |
-| `clip_tools.py` (10) | `create_audio_clip`, `create_clip`, `add_notes_to_clip`, `transpose_clip`, `set_clip_name`, `delete_clip`, `duplicate_clip`, `get_audio_clip_info`, `set_clip_pitch`, `set_clip_warp` | Clip operations + audio clip management |
+| `clip_tools.py` (11) | `create_audio_clip`, `create_clip`, `add_notes_to_clip`, `transpose_clip`, `set_clip_name`, `delete_clip`, `duplicate_clip`, `get_audio_clip_info`, `set_clip_pitch`, `set_clip_warp`, `set_clip_loop` | Clip operations + audio clip management |
 | `device_tools.py` (4) | `find_and_load_instrument`, `get_device_parameters`, `get_drum_pads`, `tweak_device` | Instruments & effects |
 | `transport_tools.py` (6) | `play`, `stop`, `set_tempo`, `undo`, `redo`, `capture_midi` | Transport |
 

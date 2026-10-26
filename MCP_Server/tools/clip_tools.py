@@ -2,7 +2,7 @@
 import json
 import logging
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger("AbletonMCPServer")
@@ -126,6 +126,43 @@ def register(mcp: FastMCP, get_connection, cache):
             return json.dumps(result, indent=2)
         except Exception as e:
             logger.error("Error creating clip: %s", e)
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    async def set_clip_loop(
+        track_index: int, clip_index: int,
+        looping: bool = True,
+        loop_start: Optional[float] = None,
+        loop_end: Optional[float] = None,
+    ) -> str:
+        """Set a clip's loop boundaries explicitly.
+
+        create_clip already sets loop_start=0 and loop_end=length, so use this
+        only when you need to change them afterwards — e.g. to build polymetric
+        loops of differing lengths, or to loop a sub-section of a longer clip.
+
+        Positions are in beats from the clip start (4.0 = 1 bar).
+
+        Args:
+            track_index: Track containing the clip.
+            clip_index: Clip slot index.
+            looping: Enable looping. Default True.
+            loop_start: Loop start in beats. None leaves it unchanged.
+            loop_end: Loop end in beats. None leaves it unchanged.
+        """
+        try:
+            conn = await get_connection()
+            result = await conn.send_command("set_clip_loop", {
+                "track_index": track_index,
+                "clip_index": clip_index,
+                "looping": looping,
+                "loop_start": loop_start,
+                "loop_end": loop_end,
+            })
+            cache.invalidate_all()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            logger.error("Error setting clip loop: %s", e)
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
